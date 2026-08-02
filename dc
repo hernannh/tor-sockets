@@ -1,0 +1,32 @@
+#!/bin/sh
+# Production compose wrapper.
+#
+# Two things this exists to get right, both of which cost a deploy to discover:
+#
+# 1. `docker compose -f docker/compose.yml ...` sets the project directory to
+#    `docker/`, so the root `.env` is NOT loaded and every `${VAR:?}` aborts with
+#    "required variable is missing". `--env-file .env` fixes it, and it has to be
+#    passed on every single invocation.
+#
+# 2. The Cloudflare tunnel is an optional third overlay. Layering it by hand is
+#    easy to forget, which leaves the site unreachable while the stack still
+#    looks healthy, so it is added automatically once CF_TUNNEL_TOKEN is set.
+#
+# Usage:
+#   ./dc up -d                 # whole stack (+ tunnel when configured)
+#   ./dc logs -f ingestion
+#   ./dc ps
+#
+# Build ordering matters: `next build` prerenders the ISR pages AND evaluates the
+# auth route's module scope, both of which need a live database. So:
+#   ./dc up -d db redis && ./dc run --rm migrate && ./dc build web ingestion
+cd "$(dirname "$0")" || exit 1
+
+[ -f .env ] || { echo "dc: no .env in $(pwd) - copy .env.example and fill it" >&2; exit 1; }
+
+FILES="-f docker/compose.yml -f docker/compose.prod.yml"
+if grep -qE '^CF_TUNNEL_TOKEN=.+' .env 2>/dev/null; then
+  FILES="$FILES -f docker/compose.tunnel.yml"
+fi
+
+exec docker compose --env-file .env $FILES "$@"

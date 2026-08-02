@@ -1,0 +1,1 @@
+ALTER TABLE "operator_claims" ADD CONSTRAINT "operator_claim_fingerprint_uidx" UNIQUE("operator_id","fingerprint");

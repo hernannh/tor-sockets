@@ -1,0 +1,30 @@
+{
+  "name": "@tor-sockets/auth",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@better-auth/drizzle-adapter": "^1.6.22",
+    "@tor-sockets/api-contract": "workspace:*",
+    "@tor-sockets/db": "workspace:*",
+    "better-auth": "^1.2.0",
+    "nodemailer": "^9.0.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tor-sockets/config": "workspace:*",
+    "@types/node": "^22.0.0",
+    "@types/nodemailer": "^8.0.1",
+    "typescript": "^5.7.0"
+  }
+}

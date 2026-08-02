@@ -1,0 +1,114 @@
+name: tor-sockets
+
+services:
+  db:
+    image: timescale/timescaledb:2.17.2-pg17
+    container_name: tor-sockets-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-torsockets}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-torsockets}
+      TS_TUNE_MEMORY: 1GB
+      TS_TUNE_NUM_CPUS: 2
+    ports:
+      - '127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/00-timescale.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-torsockets} -d ${POSTGRES_DB:-torsockets}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # A container that cannot gain privileges cannot escalate a Postgres RCE into
+    # host access. The entrypoint drops to the postgres user itself, so it only
+    # needs the ownership-related caps; everything else goes.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+
+  redis:
+    image: redis:7-alpine
+    container_name: tor-sockets-redis
+    restart: unless-stopped
+    # requirepass is mandatory: an unauthenticated Redis exposed on a host
+    # interface is a trivial RCE vector (CONFIG SET / module load). The default
+    # is dev-only; production MUST override REDIS_PASSWORD in .env.
+    command:
+      - redis-server
+      - --appendonly
+      - 'yes'
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - noeviction
+      - --requirepass
+      - ${REDIS_PASSWORD:-dev-redis-change-me}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-dev-redis-change-me}
+    ports:
+      - '127.0.0.1:${REDIS_HOST_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+
+  # OpenTelemetry collector + UI (Jaeger all-in-one).
+  # Enable instrumentation by pointing services at OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 (in-container) or http://localhost:4318 (host). UI: http://localhost:16686
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: tor-sockets-jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: 'true'
+    ports:
+      - '127.0.0.1:${JAEGER_UI_PORT:-16686}:16686'
+      - '127.0.0.1:${OTEL_OTLP_HTTP_PORT:-4318}:4318'
+      - '127.0.0.1:4317:4317'
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:14269/']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+volumes:
+  postgres-data:
+    name: tor-sockets-postgres
+  redis-data:
+    name: tor-sockets-redis

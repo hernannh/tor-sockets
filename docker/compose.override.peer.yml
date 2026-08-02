@@ -1,0 +1,74 @@
+# Tor-Sockets - peer instance override for local federation testing.
+#
+# Brings up a second set of infrastructure (database + Redis) on different
+# ports so a second Tor-Sockets instance can run on the same machine and peer
+# with the first one. The peer's web and ingestion processes are started by
+# hand, with environment variables pointing at these services (see below).
+#
+# Usage:
+#   docker compose -f docker/compose.yml \
+#                  -f docker/compose.override.peer.yml up -d
+#
+# Extra services:
+#   peer-db    Postgres + TimescaleDB on host port 5434 (own volume)
+#   peer-redis Redis on host port 6380                  (own volume)
+#
+# To run the second instance (web on :3001, ingestion separately):
+#   DATABASE_URL=postgresql://torsockets:peer@localhost:5434/torsockets \
+#   REDIS_URL=redis://localhost:6380 \
+#   FEDERATION_PRIVATE_KEY_PATH=./docker/volumes/federation/peer.ed25519 \
+#   TOR_SOCKETS_BASE_URL=http://localhost:3001 \
+#   pnpm --filter @tor-sockets/web exec next dev -p 3001
+#
+# And in another terminal, the peer ingestion worker:
+#   DATABASE_URL=postgresql://torsockets:peer@localhost:5434/torsockets \
+#   REDIS_URL=redis://localhost:6380 \
+#   pnpm --filter @tor-sockets/ingestion exec bun run src/index.ts
+#
+# Verificar peering:
+#   curl -s http://localhost:3000/federation/v1/snapshot | jq '.payload.relay_set_hash'
+#   curl -s http://localhost:3001/federation/v1/snapshot | jq '.payload.relay_set_hash'
+#   # these must match when both instances ingested the same consensus
+
+services:
+  peer-db:
+    image: timescale/timescaledb:2.17.2-pg17
+    container_name: tor-sockets-peer-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-torsockets}
+      POSTGRES_PASSWORD: ${PEER_POSTGRES_PASSWORD:-torsockets_peer}
+      POSTGRES_DB: ${POSTGRES_DB:-torsockets}
+      TS_TUNE_MEMORY: 512MB
+      TS_TUNE_NUM_CPUS: 1
+    ports:
+      - '${PEER_POSTGRES_HOST_PORT:-5434}:5432'
+    volumes:
+      - peer-postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/00-timescale.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-torsockets} -d ${POSTGRES_DB:-torsockets}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  peer-redis:
+    image: redis:7-alpine
+    container_name: tor-sockets-peer-redis
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory', '128mb', '--maxmemory-policy', 'noeviction']
+    ports:
+      - '${PEER_REDIS_HOST_PORT:-6380}:6379'
+    volumes:
+      - peer-redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  peer-postgres-data:
+    name: tor-sockets-peer-postgres
+  peer-redis-data:
+    name: tor-sockets-peer-redis

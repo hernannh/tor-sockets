@@ -1,0 +1,1 @@
+ALTER TABLE "operators" ADD COLUMN "verify_token" text;

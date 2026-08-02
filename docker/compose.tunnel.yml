@@ -1,0 +1,54 @@
+# Cloudflare Tunnel - publishes `web` without opening any inbound port.
+#
+# Applied as a THIRD file, on top of the production stack. The `./dc` wrapper
+# adds it automatically when CF_TUNNEL_TOKEN is present in .env; by hand it is:
+#   docker compose --env-file .env -f docker/compose.yml \
+#     -f docker/compose.prod.yml -f docker/compose.tunnel.yml up -d
+#
+# The tunnel is remote-managed: the ingress configuration lives in Cloudflare
+# and is edited through their API or dashboard, so only the token is needed
+# here. Moving the deployment to another host means running this same container
+# with the same token there.
+#
+# This file is optional. Any TLS-terminating reverse proxy in front of `web`
+# works just as well; the tunnel is only useful when the host has no reachable
+# inbound ports.
+#
+# KNOW WHAT YOU ARE ACCEPTING BEFORE USING IT. A tunnel terminates TLS at the
+# provider, so the provider sees visitor traffic in the clear and is in a
+# position to serve a different actor document, with a different public key, to
+# a peer fetching it for the first time. The actor document is unsigned by
+# construction because it carries the key everything else is verified against,
+# so its authenticity rests entirely on the transport.
+#
+# That is a real weakening of the federation bootstrap, not a theoretical one,
+# and it is why FEDERATION.md section 9.1 spells it out. An instance whose peers
+# need the strongest guarantee should terminate TLS in its own process or at a
+# proxy under the same operator's control. Convenient is not the same as
+# trustless, and an operator should choose knowingly.
+
+services:
+  cloudflared:
+    # Pinned, like every other image and action in this repository: `latest`
+    # means a rebuild can change the binary with nothing in the diff to show it.
+    image: cloudflare/cloudflared:2026.7.3
+    container_name: tor-sockets-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN:?set CF_TUNNEL_TOKEN in .env}
+    depends_on:
+      web:
+        condition: service_healthy
+    # Explicit resolvers: on networks whose local DNS does not resolve
+    # Cloudflare's domains, the tunnel cannot reach its control plane and the
+    # container never comes up.
+    dns:
+      - 1.1.1.1
+      - 1.0.0.1
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 128M

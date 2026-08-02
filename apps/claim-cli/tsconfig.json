@@ -1,0 +1,10 @@
+{
+  "extends": "@tor-sockets/config/tsconfig.node.json",
+  "compilerOptions": {
+    "types": ["node", "bun"],
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

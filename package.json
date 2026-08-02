@@ -1,0 +1,33 @@
+{
+  "name": "tor-sockets",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Federated Tor network health & concentration monitor",
+  "packageManager": "pnpm@10.33.4",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:generate": "pnpm --filter @tor-sockets/db generate",
+    "db:migrate": "pnpm --filter @tor-sockets/db migrate",
+    "db:studio": "pnpm --filter @tor-sockets/db studio",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "turbo": "^2.5.0",
+    "typescript": "^5.7.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "sharp": "^0.35.0",
+      "postcss": "^8.5.18"
+    }
+  }
+}

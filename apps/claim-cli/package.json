@@ -1,0 +1,30 @@
+{
+  "name": "@tor-sockets/claim-cli",
+  "version": "0.1.1",
+  "description": "Local Ed25519 claim signer for Tor relay operators (T2 verification). Reads the relay master identity key on-host and signs a proof without exposing the secret.",
+  "type": "module",
+  "bin": "dist/cli.js",
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "bun run src/cli.ts",
+    "smoke": "bun run src/smoke.ts",
+    "prepublishOnly": "tsup",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": ["tor", "relay", "ed25519", "operator", "tor-sockets", "cli"],
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "@tor-sockets/config": "workspace:*",
+    "@tor-sockets/federation": "workspace:*",
+    "@types/bun": "^1.2.0",
+    "@types/node": "^22.0.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0"
+  }
+}
