@@ -1,0 +1,109 @@
+# GitLab CI.
+#
+# This repository is mirrored on two forges, and each one only reads its own
+# configuration: GitLab ignores .github/, GitHub ignores this file. Rather than
+# pick a home and leave the other side unverified, both are checked in, and the
+# two describe the same gates.
+#
+# What only GitHub has, because the services are specific to it: Dependabot,
+# which opens the dependency update requests, and the Trivy scan of the three
+# container images. SECURITY.md says which gate lives where.
+
+stages:
+  - verify
+  - e2e
+
+default:
+  image: node:24-bookworm
+  interruptible: true
+  before_script:
+    # pnpm comes from the `packageManager` field, so the version is the one the
+    # lockfile was written with rather than whatever is newest.
+    - corepack enable
+    - corepack prepare --activate
+    - pnpm config set store-dir .pnpm-store
+
+variables:
+  POSTGRES_USER: torsockets
+  POSTGRES_PASSWORD: torsockets
+  POSTGRES_DB: torsockets
+  DATABASE_URL: postgresql://torsockets:torsockets@db:5432/torsockets
+  FF_NETWORK_PER_BUILD: 'true'
+
+.pnpm-cache: &pnpm-cache
+  key:
+    files:
+      - pnpm-lock.yaml
+  paths:
+    - .pnpm-store
+  policy: pull-push
+
+# The analysis package tests against a real Postgres with TimescaleDB instead of
+# a mocked driver. Its globalSetup derives a `_test` database from DATABASE_URL,
+# enables the extension and migrates, so no init script is needed here.
+.with-db: &with-db
+  services:
+    - name: timescale/timescaledb:2.17.2-pg17
+      alias: db
+
+verify:
+  stage: verify
+  <<: *with-db
+  cache: *pnpm-cache
+  script:
+    # The ingestion worker builds with `bun build`, so the toolchain is needed
+    # even though every other package is Node. Leaving it out makes turbo abort
+    # and drags the healthy packages down with it, which reads as three broken
+    # builds instead of one missing binary.
+    - curl -fsSL https://bun.sh/install | bash
+    - export PATH="$HOME/.bun/bin:$PATH"
+    - bun --version
+    - pnpm install --frozen-lockfile
+
+    # Drift guard: `drizzle-kit generate` on a clean tree must write nothing.
+    # Migrations written by hand and committed without their meta snapshot
+    # freeze the diff baseline, and then every generate proposes recreating
+    # tables that already exist, with nothing to say so.
+    - |
+      before=$(git status --porcelain packages/db/drizzle)
+      pnpm --filter @tor-sockets/db exec drizzle-kit generate --name=ci_drift_check
+      after=$(git status --porcelain packages/db/drizzle)
+      if [ "$before" != "$after" ]; then
+        echo "drizzle-kit generate wrote files: schema.ts and drizzle/meta disagree."
+        exit 1
+      fi
+
+    - pnpm typecheck
+    - pnpm lint
+    - pnpm test
+
+    # Fails on the first HIGH or CRITICAL advisory. Moderate and low are printed
+    # afterwards without blocking.
+    - pnpm audit --audit-level high
+    - pnpm audit || true
+
+    # `next build` prerenders the ISR pages, which query the database while
+    # building, so the schema has to exist first. The analysis tests only
+    # migrate their own `_test` database.
+    - pnpm db:migrate
+    - pnpm build
+
+e2e:
+  stage: e2e
+  <<: *with-db
+  cache:
+    <<: *pnpm-cache
+    policy: pull
+  variables:
+    FEDERATION_PRIVATE_KEY_PATH: /tmp/tor-sockets-federation.key
+    TOR_SOCKETS_BASE_URL: http://localhost:3000
+  script:
+    - pnpm install --frozen-lockfile
+    - pnpm db:migrate
+    - pnpm --filter @tor-sockets/web exec playwright install --with-deps chromium
+    - pnpm --filter @tor-sockets/web test:e2e
+  artifacts:
+    when: on_failure
+    expire_in: 14 days
+    paths:
+      - apps/web/playwright-report/

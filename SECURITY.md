@@ -56,6 +56,14 @@ See [`FEDERATION.md`](FEDERATION.md) section 1 for the federation trust model.
 Dependencies are watched automatically; nothing here relies on someone
 remembering to check.
 
+The repository is mirrored on two forges, and each reads only its own
+configuration, so both are checked in: `.github/workflows/` and
+`.gitlab-ci.yml`. They run the same gates - typecheck, lint, the test suites
+against a real Postgres, the drizzle drift guard, the dependency audit, the
+production build and the end-to-end suite. Two things exist only on the GitHub
+side, because the services are specific to it: Dependabot and the container
+image scan.
+
 - **Dependabot** (`.github/dependabot.yml`) opens weekly PRs for three
   ecosystems: the pnpm workspace, the workflow actions, and the container base
   images under `docker/`. Routine minor/patch bumps are grouped into one PR per
