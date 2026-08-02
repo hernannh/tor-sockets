@@ -1,0 +1,1 @@
+ALTER TABLE "concentration_snapshots" ALTER COLUMN "key" SET DATA TYPE varchar(128);

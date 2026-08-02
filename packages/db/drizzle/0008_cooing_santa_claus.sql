@@ -1,0 +1,1 @@
+ALTER TABLE "relays" ADD COLUMN "exit_policy_summary" jsonb;

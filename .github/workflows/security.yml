@@ -1,0 +1,138 @@
+name: Security
+
+# Dependency governance. Two gates that nothing covered before:
+#
+#   audit  - fails the build on a HIGH/CRITICAL advisory in the pnpm workspace.
+#   images - scans the three container images (OS packages + the bundled
+#            dependencies) with Trivy, so a CVE in the node/bun base image is
+#            caught even when no dependency of ours changed.
+#
+# The weekly schedule is the point of the whole file: advisories appear for code
+# that has not changed, so a push-triggered run alone would never surface them.
+# Findings are printed in the job log and fail the job; SARIF is not uploaded
+# because code scanning needs Advanced Security on a private repo.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Monday 07:00 UTC (04:00 in Buenos Aires), a bit after Dependabot runs.
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Exits non-zero on the first HIGH or CRITICAL advisory. Moderate and low
+      # are reported in the log but do not block; raise the bar here once the
+      # remaining moderates are cleared.
+      - name: Audit dependencies (high and above)
+        run: pnpm audit --audit-level high
+
+      - name: Report every advisory (never fails)
+        if: ${{ !cancelled() }}
+        run: pnpm audit || true
+
+  images:
+    # The image build is expensive (three images, one of which prerenders the
+    # Next app against a live database), so PRs get the dependency audit only.
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+
+    services:
+      db:
+        image: timescale/timescaledb:2.17.2-pg17
+        env:
+          POSTGRES_USER: torsockets
+          POSTGRES_PASSWORD: torsockets
+          POSTGRES_DB: torsockets
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U torsockets -d torsockets"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      DATABASE_URL: postgresql://torsockets:torsockets@localhost:5432/torsockets
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Dockerfile.web runs `next build`, which prerenders the ISR pages and
+      # evaluates the auth route's module scope - both need a migrated database
+      # reachable from the build container, hence --network host below.
+      - name: Apply DB migrations
+        run: pnpm db:migrate
+
+      - name: Build images
+        run: |
+          docker build -f docker/Dockerfile.ingestion -t tor-sockets-ingestion:ci .
+          docker build -f docker/Dockerfile.migrate -t tor-sockets-migrate:ci .
+          docker build -f docker/Dockerfile.web -t tor-sockets-web:ci \
+            --network host \
+            --build-arg DATABASE_URL="postgresql://torsockets:torsockets@127.0.0.1:5432/torsockets?sslmode=disable" .
+
+      - name: Scan web image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: tor-sockets-web:ci
+          format: table
+          severity: HIGH,CRITICAL
+          # A CVE with no fix available cannot be actioned by a bump, and a gate
+          # that cannot be satisfied gets disabled by whoever hits it first.
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Scan ingestion image
+        if: ${{ !cancelled() }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: tor-sockets-ingestion:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Scan migrate image
+        if: ${{ !cancelled() }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: tor-sockets-migrate:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'

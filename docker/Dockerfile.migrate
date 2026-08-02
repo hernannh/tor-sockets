@@ -1,0 +1,59 @@
+# syntax=docker/dockerfile:1.7
+# Tor-Sockets migration runner.
+#
+# The previous prod compose ran migrations with `node:22-alpine` + a bind mount
+# of the whole repo, installing pnpm and the dependency tree from the registry
+# ON EVERY DEPLOY, as root. That is slow, non-reproducible (the deployed schema
+# depended on whatever the registry served at that moment) and it handed root in
+# a container the database trusts. This image bakes the migrator instead: fixed
+# dependency set, no network at run time, non-root.
+#
+#   docker build -f docker/Dockerfile.migrate -t tor-sockets-migrate:latest .
+
+FROM node:22-alpine AS deps
+WORKDIR /repo
+ENV PNPM_HOME=/pnpm
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable && corepack prepare pnpm@10.33.4 --activate
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY packages/db/package.json packages/db/
+COPY packages/config/package.json packages/config/
+RUN --mount=type=cache,target=/pnpm/store \
+    pnpm install --frozen-lockfile --filter "@tor-sockets/db..."
+
+FROM node:22-alpine AS run
+WORKDIR /repo
+ENV NODE_ENV=production
+# No package manager in the run stage. It only ever served to spawn one script,
+# and every package manager vendors its own dependency tree: npm brought tar,
+# sigstore, brace-expansion and picomatch; pnpm - even at the version this repo
+# pins - brings a vulnerable tar and brace-expansion of its own. Together they
+# were every remaining HIGH/CRITICAL in this image's scan, none of them reachable
+# from the migration path. The CMD calls the tsx binary directly instead.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+           /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg \
+    && apk upgrade --no-cache
+COPY --from=deps --chown=node:node /repo/node_modules ./node_modules
+COPY --from=deps --chown=node:node /repo/packages/db/node_modules ./packages/db/node_modules
+# This image keeps devDependencies because the entrypoint is `tsx src/migrate.ts`
+# - but drizzle-kit is NOT part of that path (it only backs `generate`/`studio`
+# on a developer machine), and its dependency chain still drags the deprecated
+# @esbuild-kit loader, whose vendored esbuild 0.18/0.19 binaries are built
+# against Go 1.20 and were the only HIGH findings left in the image scan. tsx
+# brings its own current esbuild, which stays.
+RUN rm -rf node_modules/.pnpm/drizzle-kit@* \
+           node_modules/.pnpm/@esbuild-kit+* \
+           node_modules/.pnpm/@esbuild+linux-x64@0.18* \
+           node_modules/.pnpm/@esbuild+linux-x64@0.19* \
+           node_modules/.bin/drizzle-kit \
+           packages/db/node_modules/.bin/drizzle-kit
+COPY --chown=node:node pnpm-workspace.yaml package.json tsconfig.base.json ./
+COPY --chown=node:node packages/config ./packages/config
+COPY --chown=node:node packages/db ./packages/db
+USER node
+WORKDIR /repo/packages/db
+# Applies packages/db/drizzle/*.sql in order (drizzle journal), then exits.
+# This is `pnpm --filter @tor-sockets/db migrate` with the package manager taken
+# out of the loop - the script it used to run is exactly `tsx src/migrate.ts`.
+CMD ["node_modules/.bin/tsx", "src/migrate.ts"]

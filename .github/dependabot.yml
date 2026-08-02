@@ -1,0 +1,58 @@
+version: 2
+
+# Nothing here was announcing CVEs before: the original audit found six HIGH
+# advisories that had simply accumulated, and the workflow actions were pinned to
+# floating tags nobody was watching. These three ecosystems cover every place a
+# dependency enters the project - the pnpm workspace, the workflow actions, and
+# the container base images.
+#
+# Grouping is deliberate: one PR per ecosystem per week for the routine bumps,
+# so review stays feasible. Security updates ignore the groups and open on their
+# own, immediately.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: America/Argentina/Buenos_Aires
+    open-pull-requests-limit: 5
+    versioning-strategy: increase
+    groups:
+      # Majors land as individual PRs - they are the ones that break a build.
+      production-minor-patch:
+        dependency-type: production
+        update-types: [minor, patch]
+      development-minor-patch:
+        dependency-type: development
+        update-types: [minor, patch]
+    labels: [dependencies]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: America/Argentina/Buenos_Aires
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ['*']
+    labels: [dependencies, ci]
+
+  # The Dockerfiles and the compose files live under docker/. This keeps the
+  # node/bun/timescale base images from silently ageing into known CVEs.
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: America/Argentina/Buenos_Aires
+    open-pull-requests-limit: 3
+    groups:
+      images:
+        patterns: ['*']
+    labels: [dependencies, docker]

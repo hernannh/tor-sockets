@@ -1,0 +1,30 @@
+{
+  "name": "@tor-sockets/ingestion",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --env-file=../../.env --watch src/index.ts",
+    "build": "bun build src/index.ts --target=bun --outdir dist",
+    "start": "bun run dist/index.js",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@tor-sockets/analysis": "workspace:*",
+    "@tor-sockets/api-contract": "workspace:*",
+    "@tor-sockets/db": "workspace:*",
+    "@tor-sockets/federation": "workspace:*",
+    "@tor-sockets/ingestion-core": "workspace:*",
+    "bullmq": "^5.34.0",
+    "drizzle-orm": "^0.45.2",
+    "ioredis": "^5.4.0",
+    "nodemailer": "^9.0.3"
+  },
+  "devDependencies": {
+    "@tor-sockets/config": "workspace:*",
+    "@types/bun": "^1.2.0",
+    "@types/nodemailer": "^8.0.1"
+  }
+}

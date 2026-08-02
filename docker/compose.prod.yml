@@ -1,0 +1,165 @@
+# Tor-Sockets - production compose.
+#
+# Extends docker/compose.yml, which defines db and redis, by adding the web and
+# ingestion services built from the Dockerfiles, so the whole stack comes up
+# with a single command.
+#
+# Usage:
+#   # build the images (once per release):
+#   docker compose -f docker/compose.yml -f docker/compose.prod.yml build
+#
+#   # migrate (one-shot job, waits on the db healthcheck):
+#   docker compose -f docker/compose.yml -f docker/compose.prod.yml run --rm migrate
+#
+#   # start everything:
+#   docker compose -f docker/compose.yml -f docker/compose.prod.yml up -d
+#
+# Secrets come from .env (POSTGRES_PASSWORD, FEDERATION_PRIVATE_KEY_PATH mapped
+# to a volume, TOR_SOCKETS_BASE_URL, BETTER_AUTH_SECRET and so on).
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+      # `next build` prerenders the ISR pages and evaluates the auth route's
+      # module scope, both of which need a live database (see Dockerfile.web).
+      # The build container therefore joins the host network and talks to the
+      # `db` service through the port it publishes on loopback - so `db` has to
+      # be up and healthy BEFORE building:
+      #   ./dc up -d db redis && ./dc run --rm migrate && ./dc build web
+      network: host
+      args:
+        DATABASE_URL: postgresql://${POSTGRES_USER:-torsockets}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_HOST_PORT:-5433}/${POSTGRES_DB:-torsockets}?sslmode=disable
+    image: tor-sockets-web:latest
+    container_name: tor-sockets-web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Everything else the app reads from env (SMTP_*, TELEGRAM_BOT_TOKEN,
+    # ALERT_*, PEERINGDB_API_KEY, ...) flows through from the root .env.
+    #
+    # This is a file, not an enumerated list, on purpose: the previous version
+    # enumerated, the SMTP_* vars were never on the list, and the result was an
+    # instance that silently skipped email verification (`requireEmailVerification`
+    # is derived from `!!SMTP_HOST`) and delivered no alerts at all. Enumeration
+    # drifts; a file does not. `environment:` below still wins over anything with
+    # the same name here, so the values that must be deterministic stay pinned.
+    env_file:
+      - ../.env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-torsockets}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-torsockets}?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379
+      TOR_SOCKETS_BASE_URL: ${TOR_SOCKETS_BASE_URL:?set TOR_SOCKETS_BASE_URL in .env}
+      FEDERATION_PRIVATE_KEY_PATH: /data/federation/instance.ed25519
+      # ONIONOO_BASE_URL intentionally omitted - see the note on the ingestion
+      # service. Its default lives in the code; .env overrides it if needed.
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+      BETTER_AUTH_URL: ${TOR_SOCKETS_BASE_URL}
+      # How many trusted proxies terminate in front of this container. The rate
+      # limiter reads the client IP from x-forwarded-for counting from the right
+      # by this many hops; too high starts trusting client-written entries.
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
+    ports:
+      - '127.0.0.1:${WEB_HOST_PORT:-3000}:3000'
+    volumes:
+      - federation-keys:/data/federation
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    healthcheck:
+      # 127.0.0.1, not `localhost`: the server binds IPv4 (HOSTNAME=0.0.0.0) but
+      # `localhost` resolves to ::1 first inside the container, so the probe got
+      # "connection refused" and the container sat `unhealthy` forever while
+      # serving 200s perfectly well. An unhealthy web also blocks the tunnel,
+      # which waits on `service_healthy`.
+      test: ['CMD-SHELL', 'wget -q -O- http://127.0.0.1:3000/api/health >/dev/null 2>&1 || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  ingestion:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ingestion
+    image: tor-sockets-ingestion:latest
+    container_name: tor-sockets-ingestion
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Same reasoning as `web`. The worker is where it bites hardest: the three
+    # alert channels (SMTP_*, TELEGRAM_BOT_TOKEN, webhook) live here, and without
+    # them `deliver()` no-ops every channel without raising anything.
+    env_file:
+      - ../.env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-torsockets}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-torsockets}?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379
+      # ONIONOO_BASE_URL and ONIONOO_POLL_CRON are deliberately NOT restated
+      # here. They used to be, each with its own `:-default`, and because
+      # `environment:` outranks `env_file` those copies silently outranked the
+      # application's own defaults: changing the poll cron in code had no effect
+      # at all: the container kept the hourly value frozen in this file. A
+      # default belongs in exactly one place. The env_file above still carries
+      # either variable whenever the operator sets it in .env.
+      #
+      # The values below are restated on purpose - they are not defaults but
+      # deployment facts (service DNS names, the mounted key path) that must not
+      # be overridable from .env.
+      #
+      # The worker signs the CDC log and outbound webhooks with the SAME
+      # instance identity the web app publishes, so it needs the same key file.
+      # Without these two the worker aborts at boot ("FEDERATION_PRIVATE_KEY_PATH
+      # is not set") or, worse, mints a second identity.
+      FEDERATION_PRIVATE_KEY_PATH: /data/federation/instance.ed25519
+      TOR_SOCKETS_BASE_URL: ${TOR_SOCKETS_BASE_URL:?set TOR_SOCKETS_BASE_URL in .env}
+    volumes:
+      - federation-keys:/data/federation
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # Baked migration image (no registry install at deploy time, non-root).
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.migrate
+    image: tor-sockets-migrate:latest
+    container_name: tor-sockets-migrate
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-torsockets}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-torsockets}?sslmode=disable
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: 'no'
+
+volumes:
+  federation-keys:
+    name: tor-sockets-federation-keys

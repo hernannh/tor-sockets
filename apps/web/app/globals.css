@@ -1,0 +1,193 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Onion Amethyst design system.
+ *
+ * The app is dark-only. Surfaces carry a deep onion-purple tint (hue ~304) and
+ * `--primary` is an amethyst/violet accent. Semantic tokens (relay role,
+ * severity, status, proof, peer) are defined once here and consumed as Tailwind
+ * utilities (text-sev-low, bg-role-guard, …) so the palette is not scattered as
+ * literal Tailwind classes / hex across components. Role/severity hues carry
+ * domain meaning and are kept stable across rebrands.
+ */
+:root {
+  color-scheme: dark;
+  --radius: 0.625rem;
+
+  /* Surfaces - deep onion-purple */
+  --background: oklch(0.165 0.034 304);
+  --foreground: oklch(0.985 0.004 300);
+  --card: oklch(0.21 0.036 304);
+  --card-foreground: oklch(0.985 0.004 300);
+  --popover: oklch(0.225 0.038 304);
+  --popover-foreground: oklch(0.985 0.004 300);
+
+  /* Brand - amethyst/violet */
+  --primary: oklch(0.74 0.165 300);
+  --primary-foreground: oklch(0.16 0.034 304);
+
+  --secondary: oklch(0.27 0.03 304);
+  --secondary-foreground: oklch(0.985 0.004 300);
+  --muted: oklch(0.24 0.026 304);
+  --muted-foreground: oklch(0.7 0.02 300);
+  --accent: oklch(0.3 0.04 304);
+  --accent-foreground: oklch(0.985 0.004 300);
+  --destructive: oklch(0.64 0.22 25);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.32 0.03 304 / 40%);
+  --input: oklch(0.32 0.03 304 / 55%);
+  --ring: var(--primary);
+
+  /* Relay roles (circuit: guard → middle → exit) */
+  --role-guard: oklch(0.74 0.14 235);
+  --role-middle: oklch(0.62 0.015 230);
+  --role-exit: oklch(0.78 0.15 70);
+  --role-balanced: var(--primary);
+  --role-authority: oklch(0.68 0.18 355);
+  --role-hsdir: oklch(0.74 0.15 160);
+
+  /* Severity (anomalies + HHI). moderate aliases medium for HHI dimension. */
+  --sev-info: oklch(0.78 0.12 235);
+  --sev-low: oklch(0.78 0.15 160);
+  --sev-medium: oklch(0.8 0.14 75);
+  --sev-high: oklch(0.74 0.17 45);
+  --sev-critical: oklch(0.64 0.22 25);
+  --sev-moderate: var(--sev-medium);
+
+  /* Status / proof / peer */
+  --status-running: var(--sev-low);
+  --status-stopped: var(--muted-foreground);
+  --proof-ed25519: var(--primary);
+  --proof-contact: var(--sev-low);
+  --proof-self: var(--muted-foreground);
+  --peer-trusted: var(--sev-low);
+  --peer-divergent: var(--sev-medium);
+  --success: var(--sev-low);
+  --danger: var(--destructive);
+
+  /* Chart palette - aliased to roles so legacy chart-N refs stay coherent */
+  --chart-1: var(--role-guard);
+  --chart-2: var(--role-hsdir);
+  --chart-3: var(--role-exit);
+  --chart-4: var(--role-authority);
+  --chart-5: var(--sev-critical);
+
+  /* Sidebar */
+  --sidebar: oklch(0.19 0.03 304);
+  --sidebar-foreground: oklch(0.985 0.004 300);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: oklch(0.16 0.034 304);
+  --sidebar-accent: oklch(0.3 0.04 304);
+  --sidebar-accent-foreground: oklch(0.985 0.004 300);
+  --sidebar-border: oklch(0.32 0.03 304 / 40%);
+  --sidebar-ring: var(--primary);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: var(--font-ibm-plex-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, sans-serif;
+  --font-mono: var(--font-ibm-plex-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-condensed: var(--font-ibm-plex-condensed), var(--font-ibm-plex-sans), ui-sans-serif,
+    system-ui, sans-serif;
+  --font-display: var(--font-space-grotesk), var(--font-ibm-plex-sans), ui-sans-serif, system-ui,
+    sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-role-guard: var(--role-guard);
+  --color-role-middle: var(--role-middle);
+  --color-role-exit: var(--role-exit);
+  --color-role-balanced: var(--role-balanced);
+  --color-role-authority: var(--role-authority);
+  --color-role-hsdir: var(--role-hsdir);
+
+  --color-sev-info: var(--sev-info);
+  --color-sev-low: var(--sev-low);
+  --color-sev-medium: var(--sev-medium);
+  --color-sev-moderate: var(--sev-moderate);
+  --color-sev-high: var(--sev-high);
+  --color-sev-critical: var(--sev-critical);
+
+  --color-status-running: var(--status-running);
+  --color-status-stopped: var(--status-stopped);
+  --color-proof-ed25519: var(--proof-ed25519);
+  --color-proof-contact: var(--proof-contact);
+  --color-proof-self: var(--proof-self);
+  --color-peer-trusted: var(--peer-trusted);
+  --color-peer-divergent: var(--peer-divergent);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+    outline-color: color-mix(in oklch, var(--ring) 50%, transparent);
+  }
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* MapLibre popups - dark surface matching the card token */
+.maplibregl-popup-content {
+  background: var(--card);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.45);
+  font-family: var(--font-sans);
+}
+.maplibregl-popup-tip {
+  border-top-color: var(--card);
+  border-bottom-color: var(--card);
+}

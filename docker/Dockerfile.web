@@ -1,0 +1,113 @@
+# syntax=docker/dockerfile:1.7
+# Tor-Sockets web (Next.js 16 standalone) - multi-stage build.
+#
+# Build context = repo root:
+#   docker build -f docker/Dockerfile.web -t tor-sockets-web:latest .
+#
+# Run (requiere DATABASE_URL, REDIS_URL, FEDERATION_PRIVATE_KEY_PATH, etc.):
+#   docker run -p 3000:3000 \
+#     -e DATABASE_URL=... -e REDIS_URL=... \
+#     -v $(pwd)/docker/volumes/federation:/data/federation \
+#     -e FEDERATION_PRIVATE_KEY_PATH=/data/federation/instance.ed25519 \
+#     tor-sockets-web:latest
+
+ARG NODE_VERSION=22-alpine
+
+# --- deps ---
+FROM node:${NODE_VERSION} AS deps
+WORKDIR /repo
+RUN corepack enable
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY biome.json tsconfig.base.json turbo.json ./
+COPY apps/web/package.json apps/web/
+COPY apps/ingestion/package.json apps/ingestion/
+COPY packages/db/package.json packages/db/
+COPY packages/ingestion-core/package.json packages/ingestion-core/
+COPY packages/federation/package.json packages/federation/
+COPY packages/analysis/package.json packages/analysis/
+COPY packages/auth/package.json packages/auth/
+COPY packages/api-contract/package.json packages/api-contract/
+COPY packages/config/package.json packages/config/
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile --filter=@tor-sockets/web... --filter=@tor-sockets/db --filter=@tor-sockets/federation --include-workspace-root
+
+# --- build ---
+FROM node:${NODE_VERSION} AS build
+WORKDIR /repo
+RUN corepack enable
+COPY --from=deps /repo/node_modules ./node_modules
+COPY --from=deps /repo/apps/web/node_modules ./apps/web/node_modules
+# The SOURCE of the workspace packages, from the build context.
+#
+# This used to read `COPY --from=deps /repo/packages ./packages` alone - but
+# `deps` only ever received each package's package.json (that is the whole point
+# of that stage), so @tor-sockets/db, /api-contract and /federation arrived as
+# empty shells. Every route that imports them died with module-not-found and the
+# image had never once built. The packages are consumed as TypeScript (their
+# `exports` point at ./src and the app lists them in `transpilePackages`), so it
+# is the sources that have to be here, not a compiled dist.
+COPY packages ./packages
+# ...and, merged on top, the per-package node_modules that only pnpm can lay out.
+COPY --from=deps /repo/packages ./packages
+# pnpm-workspace.yaml keeps the `workspace:*` links resolvable during the build.
+COPY pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json turbo.json package.json biome.json ./
+COPY apps/web ./apps/web
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# `next build` needs a REACHABLE database, not just a syntactically valid URL.
+# Two separate reasons, and the second one is easy to miss:
+#   - ~10 pages are ISR (`revalidate = 60`), so they are prerendered here and
+#     run their queries during the build;
+#   - `app/api/auth/[...all]/route.ts` calls `getAuth()` at module scope, and
+#     collecting page data evaluates that module. `getAuth()` resolves
+#     `getDb(process.env.DATABASE_URL)` as a default argument, which throws
+#     "DATABASE_URL is not set" before anything else gets a chance to run.
+#
+# The compose file passes this arg pointing at the db published on the host loopback
+# and builds with `network: host`. The ARG lives only in this discarded build
+# stage, so the credential does not reach the shipped image's history.
+ARG DATABASE_URL
+ENV DATABASE_URL=${DATABASE_URL}
+RUN pnpm --filter @tor-sockets/web build
+
+# --- run ---
+FROM node:${NODE_VERSION} AS run
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+# The runtime command is `node apps/web/server.js`; npm is never invoked here.
+# It is not free to keep: npm vendors its own dependency tree, and every
+# HIGH/CRITICAL finding in the image scan (tar, sigstore, brace-expansion,
+# picomatch) came from that tree, not from anything this app ships.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+RUN apk upgrade --no-cache
+RUN addgroup -S -g 1001 nextjs && \
+    adduser -S -u 1001 -G nextjs nextjs
+# The federation keypair lives in a named volume shared with the ingestion
+# worker, and `saveKeypair` writes it 0600 - owner-only, which is correct for a
+# private key and means a shared group would not help. Both containers therefore
+# run as the SAME uid 1001. Docker copies this directory's ownership onto an
+# empty named volume at first mount; without it the volume is created root:root
+# and both processes fail with EACCES (the worker degrades to "cdc log failed"
+# on every single job, while still looking healthy).
+RUN mkdir -p /data/federation \
+    && chown 1001:1001 /data/federation \
+    && chmod 0700 /data/federation
+# Next writes its output under the APP directory (`apps/web/.next`), not the
+# repo root - `distDir` is resolved relative to the Next project. These paths
+# said `/repo/.next/...` and the run stage failed with "not found"; the error
+# only surfaces here, after a full successful compile, which is why it survived
+# in a Dockerfile nobody had managed to run to completion.
+#
+# With `outputFileTracingRoot` pointing at the repo root, the standalone bundle
+# keeps the monorepo shape internally: server.js lands at
+# <standalone>/apps/web/server.js, which is what the CMD below runs, and the
+# static assets have to sit next to it at <standalone>/apps/web/.next/static.
+COPY --from=build --chown=nextjs:nextjs /repo/apps/web/.next/standalone ./
+COPY --from=build --chown=nextjs:nextjs /repo/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build --chown=nextjs:nextjs /repo/apps/web/public ./apps/web/public
+USER nextjs
+EXPOSE 3000
+CMD ["node", "apps/web/server.js"]

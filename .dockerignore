@@ -1,0 +1,41 @@
+# Build context for docker/Dockerfile.{web,ingestion,migrate} (context = repo root).
+#
+# Without this file the context carried the whole host `node_modules` (~1 GB of
+# platform-specific binaries) into every build, and a `COPY packages ./packages`
+# would drop the host's own node_modules/dist on top of the ones pnpm installed
+# inside the image.
+
+# Dependency trees: installed inside the image, never copied in.
+node_modules
+**/node_modules
+
+# Build outputs. The workspace packages are consumed as TypeScript source
+# (every package.json points `exports` at ./src/*.ts and the web app lists them
+# in `transpilePackages`), so a stale `dist/` is at best dead weight.
+.next
+**/.next
+**/.next-peer
+**/dist
+**/build
+**/.turbo
+**/*.tsbuildinfo
+
+# Test and tooling artifacts.
+**/coverage
+**/test-results
+**/playwright-report
+**/blob-report
+**/playwright/.cache
+
+# Secrets and local state: `.env` is injected at run time via env_file, and the
+# federation keypair lives in a named volume. Neither belongs in an image layer.
+.env
+.env.*
+!.env.example
+docker/volumes
+
+# VCS and editor noise.
+.git
+.github
+.vscode
+.idea

@@ -1,0 +1,22 @@
+# Tor-Sockets - dev stack entrypoint (root).
+#
+# Thin root file so the local stack goes up/down from the repo root with a
+# single command and the root `.env` auto-loaded - no `-f docker/compose.yml`,
+# no `--env-file` path juggling:
+#
+#   docker compose up -d      # start db + redis + jaeger
+#   docker compose down       # stop
+#   docker compose ps / logs  # inspect
+#
+# The actual dev service definitions live in docker/compose.yml (included
+# below). `include` resolves that file's relative paths (e.g. the postgres
+# init.sql bind) relative to docker/, so nothing moves.
+#
+# Production / peer stacks still layer their overrides explicitly (project dir
+# stays docker/, keeping their relative paths correct):
+#   docker compose -f docker/compose.yml -f docker/compose.prod.yml ...
+#   docker compose -f docker/compose.yml -f docker/compose.override.peer.yml up -d
+name: tor-sockets
+
+include:
+  - docker/compose.yml

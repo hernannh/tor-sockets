@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+.next/
+.next-peer/
+out/
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# Drizzle
+drizzle/meta/
+
+# Env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+bun-debug.log*
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Playwright
+**/playwright-report/
+**/test-results/
+**/blob-report/
+**/playwright/.cache/
+
+# Docker volumes (local)
+docker/volumes/
+**/docker/volumes/
+
+# Federation instance keys (secrets - Ed25519 private keys)
+*.private.key
+federation-private-key.*
+*.ed25519
+
+# Per-deployment Cloudflare tunnel id (written by the tunnel setup, not source)
+.tunnel-id
+
+# Coverage / test artifacts
+coverage/
+.playwright/
+test-results/

@@ -1,0 +1,173 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref (cheap integration tests, but no
+# point queuing two runs for the same branch).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Actions are pinned by commit SHA, not by tag: a tag is mutable, so `@v4` means
+# "whatever that repo points there today" - an action with write access to this
+# workflow's token. The trailing comment is the human-readable version, and
+# `.github/dependabot.yml` (github-actions ecosystem) opens the PR that moves
+# each SHA forward. Pinning also ended the deprecated-Node-20 warnings: these are
+# the current majors.
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    # The analysis package has integration tests against Postgres+Timescale.
+    # Its `globalSetup` derives a `_test` DB from DATABASE_URL (DROP+CREATE
+    # via the `postgres` maintenance DB), enables timescaledb, and migrates.
+    # No init.sql needed - globalSetup creates the extension itself.
+    services:
+      db:
+        image: timescale/timescaledb:2.17.2-pg17
+        env:
+          POSTGRES_USER: torsockets
+          POSTGRES_PASSWORD: torsockets
+          POSTGRES_DB: torsockets
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U torsockets -d torsockets"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      DATABASE_URL: postgresql://torsockets:torsockets@localhost:5432/torsockets
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # pnpm before node so setup-node can cache the pnpm store.
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        # version is read from `packageManager` in package.json
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      # The ingestion worker is a Bun app (`bun build` in its build script), so
+      # the toolchain is required even though every other package is Node.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3'
+
+      - name: Cache turbo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .turbo
+            **/.turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Drift guard. Migrations 0009-0011 were written by hand and committed
+      # without their `meta/*_snapshot.json`, which froze drizzle-kit's diff
+      # baseline at 0008: for weeks every `generate` proposed recreating tables
+      # that already existed, and nothing said so. `generate` on a clean tree
+      # must write nothing.
+      # Compares before/after rather than "is the tree clean", so the same
+      # command is runnable locally on a dirty working tree.
+      - name: Check drizzle snapshots match the schema
+        run: |
+          before=$(git status --porcelain packages/db/drizzle)
+          pnpm --filter @tor-sockets/db exec drizzle-kit generate --name=ci_drift_check
+          after=$(git status --porcelain packages/db/drizzle)
+          if [ "$before" != "$after" ]; then
+            echo "::error::drizzle-kit generate wrote files - schema.ts and drizzle/meta disagree. Commit the generated migration, or realign the snapshot as 0012 did."
+            diff <(echo "$before") <(echo "$after") || true
+            exit 1
+          fi
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+      # `next build` prerenders the ISR pages (dashboard, health, map, ...),
+      # which query the DB at build time - so the schema has to exist. The
+      # analysis tests only migrate their own `_test` database.
+      - name: Apply DB migrations
+        run: pnpm db:migrate
+
+      - name: Build
+        run: pnpm build
+
+  e2e:
+    runs-on: ubuntu-latest
+
+    # The web app reads the DB at runtime; the federation endpoints and pages
+    # need the schema present (data volume is irrelevant - the E2E suite asserts
+    # on structure/crypto, not exact values, so an empty migrated DB is fine).
+    services:
+      db:
+        image: timescale/timescaledb:2.17.2-pg17
+        env:
+          POSTGRES_USER: torsockets
+          POSTGRES_PASSWORD: torsockets
+          POSTGRES_DB: torsockets
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U torsockets -d torsockets"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      DATABASE_URL: postgresql://torsockets:torsockets@localhost:5432/torsockets
+      # loadOrCreateKeypair writes here on first run.
+      FEDERATION_PRIVATE_KEY_PATH: /tmp/tor-sockets-federation.key
+      TOR_SOCKETS_BASE_URL: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply DB migrations
+        run: pnpm db:migrate
+
+      - name: Install Playwright (chromium)
+        run: pnpm --filter @tor-sockets/web exec playwright install --with-deps chromium
+
+      - name: Run E2E
+        run: pnpm --filter @tor-sockets/web test:e2e
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() && failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 14
+

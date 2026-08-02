@@ -1,0 +1,97 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1782699214492,
+      "tag": "0000_ancient_ulik",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1782699239194,
+      "tag": "0001_timescale_hypertables",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782744249005,
+      "tag": "0002_tricky_rocket_racer",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1782867872245,
+      "tag": "0003_sticky_ravenous",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782869897318,
+      "tag": "0004_overjoyed_shotgun",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782870138433,
+      "tag": "0005_workable_sheva_callister",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783390420158,
+      "tag": "0006_familiar_blizzard",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783434245293,
+      "tag": "0007_futuristic_senator_kelly",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783453975394,
+      "tag": "0008_cooing_santa_claus",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783600000000,
+      "tag": "0009_idempotent_writes",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783750000000,
+      "tag": "0010_two_factor",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784900000000,
+      "tag": "0011_ingest_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1785022460651,
+      "tag": "0012_realign_snapshot_baseline",
+      "breakpoints": true
+    }
+  ]
+}
