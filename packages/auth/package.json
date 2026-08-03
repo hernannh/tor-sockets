@@ -14,10 +14,10 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@better-auth/drizzle-adapter": "^1.6.22",
+    "@better-auth/drizzle-adapter": "^1.6.25",
     "@tor-sockets/api-contract": "workspace:*",
     "@tor-sockets/db": "workspace:*",
-    "better-auth": "^1.2.0",
+    "better-auth": "^1.6.25",
     "nodemailer": "^9.0.3",
     "zod": "^4.4.3"
   },
