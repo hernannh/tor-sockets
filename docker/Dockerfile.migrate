@@ -10,7 +10,7 @@
 #
 #   docker build -f docker/Dockerfile.migrate -t tor-sockets-migrate:latest .
 
-FROM node:22-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /repo
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
@@ -21,7 +21,7 @@ COPY packages/config/package.json packages/config/
 RUN --mount=type=cache,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter "@tor-sockets/db..."
 
-FROM node:22-alpine AS run
+FROM node:26-alpine AS run
 WORKDIR /repo
 ENV NODE_ENV=production
 # No package manager in the run stage. It only ever served to spawn one script,
