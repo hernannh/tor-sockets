@@ -19,7 +19,7 @@
   },
   "devDependencies": {
     "@tor-sockets/config": "workspace:*",
-    "openapi3-ts": "4.6.0",
+    "openapi3-ts": "4.6.1",
     "typescript": "^5.7.0"
   }
 }
