@@ -19,7 +19,7 @@
   "dependencies": {
     "@tor-sockets/api-contract": "workspace:*",
     "@tor-sockets/db": "workspace:*",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.3"
   },
   "devDependencies": {
     "@tor-sockets/config": "workspace:*",
